@@ -8,7 +8,9 @@ BASE_URL = "https://data-api.binance.vision/api/v3/klines"
 SYMBOL = "BTCUSDT"
 
 # label: (binance interval to download, custom resampling rule or None)
-INTERVALS: dict[str, tuple[str, str | None]] = {
+
+INTERVALS = {
+    # Minutes
     "1m": ("1m", None),
     "2m": ("1m", "2min"),
     "3m": ("3m", None),
@@ -16,6 +18,9 @@ INTERVALS: dict[str, tuple[str, str | None]] = {
     "10m": ("5m", "10min"),
     "15m": ("15m", None),
     "30m": ("30m", None),
+    "45m": ("15m", "45min"),
+
+    # Hours
     "1h": ("1h", None),
     "2h": ("2h", None),
     "3h": ("1h", "3h"),
@@ -24,8 +29,18 @@ INTERVALS: dict[str, tuple[str, str | None]] = {
     "6h": ("6h", None),
     "8h": ("8h", None),
     "12h": ("12h", None),
+
+    # Days and weeks
     "1d": ("1d", None),
+    "1w": ("1w", None),
+
+    # Calendar months
+    "1M": ("1M", None),
+    "3M": ("1M", "3mo"),
+    "6M": ("1M", "6mo"),
+    "12M": ("1M", "12mo"),
 }
+
 
 
 def parse_klines(payload: list[list]) -> pd.DataFrame:
@@ -48,17 +63,68 @@ def parse_klines(payload: list[list]) -> pd.DataFrame:
     return df.sort_values("open_time").reset_index(drop=True)
 
 
-def aggregate_candles(df: pd.DataFrame, rule: str) -> pd.DataFrame:
-    """Resample candles on UTC-day-aligned boundaries, preserving OHLCV semantics."""
+
+def aggregate_candles(
+    df: pd.DataFrame,
+    rule: str
+) -> pd.DataFrame:
+
     if df.empty:
         return df.copy()
-    indexed = df.set_index("open_time").sort_index()
-    agg = indexed.resample(rule, origin="start_day", label="left", closed="left").agg({
-        "open": "first", "high": "max", "low": "min",
-        "close": "last", "volume": "sum",
-    })
-    agg = agg.dropna(subset=["open", "high", "low", "close"])
-    return agg.reset_index()
+
+    aggregation = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum",
+    }
+
+    # Calendar-based aggregation
+    if rule in ["3mo", "6mo", "12mo"]:
+
+        months = int(rule.replace("mo", ""))
+
+        data = df.copy()
+        timestamps = data["open_time"]
+
+        bucket_month = (
+            (timestamps.dt.month - 1) // months
+        ) * months + 1
+
+        data["open_time"] = pd.to_datetime(
+            {
+                "year": timestamps.dt.year,
+                "month": bucket_month,
+                "day": 1,
+            },
+            utc=True
+        )
+
+        result = (
+            data.groupby("open_time", as_index=False)
+            .agg(aggregation)
+        )
+
+    else:
+        result = (
+            df.set_index("open_time")
+            .sort_index()
+            .resample(
+                rule,
+                origin="start_day",
+                label="left",
+                closed="left"
+            )
+            .agg(aggregation)
+            .dropna(
+                subset=["open", "high", "low", "close"]
+            )
+            .reset_index()
+        )
+
+    return result
+
 
 
 def get_candles(interval: str, count: int = 200) -> pd.DataFrame:
@@ -69,8 +135,16 @@ def get_candles(interval: str, count: int = 200) -> pd.DataFrame:
         raise ValueError("count must be between 25 and 400")
 
     exchange_interval, resample_rule = INTERVALS[interval]
+
     multiplier = {
-        "2m": 2, "10m": 2, "3h": 3, "5h": 5,
+        "2m": 2,
+        "10m": 2,
+        "45m": 3,
+        "3h": 3,
+        "5h": 5,
+        "3M": 3,
+        "6M": 6,
+        "12M": 12,
     }.get(interval, 1)
 
     # Binance allows up to 1000 in one request. We show up to 200 for 5h,
