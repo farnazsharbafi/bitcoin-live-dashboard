@@ -113,7 +113,7 @@ def build_chart(df: pd.DataFrame, kind: str, interval: str) -> go.Figure:
     return fig
 
 
-@st.fragment(run_every="15s" if auto_refresh else None)
+@st.fragment(run_every="3s" if auto_refresh else None)
 def live_chart() -> None:
     try:
         df = get_cached_candles(interval, count)
