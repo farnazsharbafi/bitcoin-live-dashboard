@@ -66,7 +66,7 @@ with st.sidebar:
 
     chart_type = st.radio("Chart type", ["Candlestick", "Line"], horizontal=True)
     count = st.slider("Candles displayed", min_value=50, max_value=200, value=150, step=25)
-    auto_refresh = st.toggle("Auto-refresh every 15 seconds", value=True)
+    auto_refresh = st.toggle("Auto-refresh every 3 seconds", value=True)
     if st.button("Refresh now", use_container_width=True):
         # The live data call is cached for 10 sec; clearing bypasses the cache.
         get_cached_candles.clear()
