@@ -31,7 +31,39 @@ def get_cached_candles(interval: str, count: int) -> pd.DataFrame:
 
 with st.sidebar:
     st.header("Chart controls")
-    interval = st.selectbox("Time interval", list(INTERVALS.keys()), index=3)
+    
+    INTERVAL_LABELS = {
+        "1m": "1 minute",
+        "2m": "2 minutes",
+        "3m": "3 minutes",
+        "5m": "5 minutes",
+        "10m": "10 minutes",
+        "15m": "15 minutes",
+        "30m": "30 minutes",
+        "45m": "45 minutes",
+        "1h": "1 hour",
+        "2h": "2 hours",
+        "3h": "3 hours",
+        "4h": "4 hours",
+        "5h": "5 hours",
+        "6h": "6 hours",
+        "8h": "8 hours",
+        "12h": "12 hours",
+        "1d": "1 day",
+        "1w": "1 week",
+        "1M": "1 month",
+        "3M": "3 months",
+        "6M": "6 months",
+        "12M": "12 months",
+    }
+    
+    interval = st.selectbox(
+        "Time interval",
+        options=list(INTERVALS.keys()),
+        index=3,
+        format_func=lambda x: INTERVAL_LABELS[x]
+    )
+
     chart_type = st.radio("Chart type", ["Candlestick", "Line"], horizontal=True)
     count = st.slider("Candles displayed", min_value=50, max_value=200, value=150, step=25)
     auto_refresh = st.toggle("Auto-refresh every 15 seconds", value=True)
@@ -39,7 +71,9 @@ with st.sidebar:
         # The live data call is cached for 10 sec; clearing bypasses the cache.
         get_cached_candles.clear()
         st.rerun()
-    st.caption("Custom 2m, 10m, 3h and 5h candles are aggregated from shorter candles.")
+    st.caption(
+    "Custom intervals are calculated from shorter "
+    "Binance candles. All times use UTC.")
     st.caption("No API keys, trading accounts, or database required.")
 
 
