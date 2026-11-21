@@ -1,0 +1,119 @@
+"""BTC/USDT live price dashboard — charts and interval selection only."""
+from __future__ import annotations
+
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from market_data import INTERVALS, get_candles
+
+st.set_page_config(
+    page_title="Bitcoin Live | BTC/USDT",
+    page_icon="₿",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown("""
+<style>
+.block-container {padding-top: 1.8rem; max-width: 1450px;}
+[data-testid="stMetric"] {background: rgba(128,128,128,.06); padding: .75rem 1rem; border-radius: .7rem;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("₿ Bitcoin Live Dashboard")
+st.caption("BTC/USDT · Binance spot market · Free public market data · UTC chart times")
+
+@st.cache_data(ttl=10, show_spinner=False)
+def get_cached_candles(interval: str, count: int) -> pd.DataFrame:
+    return get_candles(interval, count)
+
+
+with st.sidebar:
+    st.header("Chart controls")
+    interval = st.selectbox("Time interval", list(INTERVALS.keys()), index=3)
+    chart_type = st.radio("Chart type", ["Candlestick", "Line"], horizontal=True)
+    count = st.slider("Candles displayed", min_value=50, max_value=200, value=150, step=25)
+    auto_refresh = st.toggle("Auto-refresh every 15 seconds", value=True)
+    if st.button("Refresh now", use_container_width=True):
+        # The live data call is cached for 10 sec; clearing bypasses the cache.
+        get_cached_candles.clear()
+        st.rerun()
+    st.caption("Custom 2m, 10m, 3h and 5h candles are aggregated from shorter candles.")
+    st.caption("No API keys, trading accounts, or database required.")
+
+
+
+
+def build_chart(df: pd.DataFrame, kind: str, interval: str) -> go.Figure:
+    fig = go.Figure()
+    if kind == "Candlestick":
+        fig.add_trace(go.Candlestick(
+            x=df["open_time"],
+            open=df["open"], high=df["high"],
+            low=df["low"], close=df["close"],
+            name="BTC/USDT",
+            increasing_line_color="#14a38b",
+            decreasing_line_color="#e05f66",
+        ))
+    else:
+        fig.add_trace(go.Scatter(
+            x=df["open_time"], y=df["close"],
+            mode="lines", name="BTC/USDT Close",
+            line={"color": "#14a38b", "width": 2.5},
+            hovertemplate="%{x|%Y-%m-%d %H:%M} UTC<br>$%{y:,.2f}<extra></extra>",
+        ))
+    fig.update_layout(
+        title=f"BTC/USDT · {interval} · {kind}",
+        height=590,
+        margin=dict(l=10, r=10, t=55, b=15),
+        hovermode="x unified" if kind == "Line" else "closest",
+        xaxis_title="Time (UTC)",
+        yaxis_title="Price (USDT)",
+        xaxis_rangeslider_visible=False,
+        dragmode="pan",
+        template="plotly_white",
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(140,140,140,.12)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(140,140,140,.12)", tickprefix="$")
+    return fig
+
+
+@st.fragment(run_every="15s" if auto_refresh else None)
+def live_chart() -> None:
+    try:
+        df = get_cached_candles(interval, count)
+    except Exception as exc:
+        st.error("Could not load live BTC/USDT candles from Binance. The API may be temporarily unavailable or restricted from this network.")
+        st.caption(f"Technical detail: {type(exc).__name__}: {exc}")
+        st.info("Try clicking Refresh now. No API key is required.")
+        return
+
+    latest = df.iloc[-1]
+    previous = df.iloc[-2] if len(df) > 1 else latest
+    change = ((latest["close"] / previous["close"] - 1) * 100) if previous["close"] else 0.0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Latest candle close", f"${latest['close']:,.2f}", f"{change:+.2f}% vs prior candle")
+    c2.metric("Current candle high", f"${latest['high']:,.2f}")
+    c3.metric("Current candle low", f"${latest['low']:,.2f}")
+
+    st.plotly_chart(build_chart(df, chart_type, interval), use_container_width=True,
+                    config={"displaylogo": False, "scrollZoom": True})
+    st.caption(
+        "Last available candle starts: "
+        f"{latest['open_time'].strftime('%Y-%m-%d %H:%M:%S UTC')} · "
+        "The most recent candle may still be forming. "
+        "Data refreshes while this page is open and connected."
+    )
+
+
+live_chart()
+
+with st.expander("About this dashboard"):
+    st.write(
+        "This public portfolio app displays Binance BTC/USDT spot-market candles. "
+        "It supports line/candlestick views and custom timeframes. "
+        "It does not place trades or store market data. "
+        "The figures are illustrative of one exchange and may differ from other markets."
+    )
