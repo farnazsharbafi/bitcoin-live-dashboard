@@ -1,4 +1,6 @@
-streamlit>=1.42,<2
+streamlit>=1.50,<2
 pandas>=2.2,<3
-plotly>=5.24,<7
+plotly>=6,<7
 requests>=2.31,<3
+SQLAlchemy>=2.0,<3
+psycopg[binary]>=3.2,<4
