@@ -5,6 +5,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from datetime import datetime, timedelta, timezone
+import math
+
 from market_data import INTERVALS, get_candles
 
 st.set_page_config(
@@ -117,6 +120,98 @@ def build_chart(df: pd.DataFrame, kind: str, interval: str) -> go.Figure:
     fig.update_yaxes(showgrid=True, gridcolor="rgba(140,140,140,.12)", tickprefix="$")
     return fig
 
+def get_candle_close_time(interval):
+    now = datetime.now(timezone.utc)
+
+    # Calendar-based timeframes
+    if interval in ["1M", "3M", "6M", "12M"]:
+        months = int(interval.replace("M", ""))
+        current_month_index = now.year * 12 + now.month - 1
+
+        next_index = (
+            current_month_index // months + 1
+        ) * months
+
+        year, month_index = divmod(next_index, 12)
+
+        return datetime(
+            year, month_index + 1, 1,
+            tzinfo=timezone.utc
+        )
+
+    # Weekly candles: Monday 00:00 UTC
+    if interval == "1w":
+        start_of_week = (
+            now.replace(
+                hour=0, minute=0,
+                second=0, microsecond=0
+            )
+            - timedelta(days=now.weekday())
+        )
+        return start_of_week + timedelta(days=7)
+
+    # Fixed-length timeframes
+    seconds_map = {
+        "1m": 60,
+        "2m": 120,
+        "3m": 180,
+        "5m": 300,
+        "10m": 600,
+        "15m": 900,
+        "30m": 1800,
+        "45m": 2700,
+        "1h": 3600,
+        "2h": 7200,
+        "3h": 10800,
+        "4h": 14400,
+        "5h": 18000,
+        "6h": 21600,
+        "8h": 28800,
+        "12h": 43200,
+        "1d": 86400,
+    }
+
+    duration = seconds_map[interval]
+
+    midnight = now.replace(
+        hour=0, minute=0,
+        second=0, microsecond=0
+    )
+
+    elapsed = (now - midnight).total_seconds()
+    next_bucket = (
+        math.floor(elapsed / duration) + 1
+    ) * duration
+
+    return midnight + timedelta(seconds=next_bucket)
+
+
+@st.fragment(run_every="1s")
+def candle_countdown():
+    now = datetime.now(timezone.utc)
+    close_time = get_candle_close_time(interval)
+
+    remaining = max(
+        0,
+        math.ceil((close_time - now).total_seconds())
+    )
+
+    days, remainder = divmod(remaining, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if days:
+        countdown = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
+    elif hours:
+        countdown = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    else:
+        countdown = f"{minutes:02d}:{seconds:02d}"
+
+    st.metric(
+        label=f"⏳ Candle closes in ({interval})",
+        value=countdown
+    )
+
 
 @st.fragment(run_every="3s" if auto_refresh else None)
 def live_chart() -> None:
@@ -150,7 +245,10 @@ def live_chart() -> None:
     )
 
 
+
+candle_countdown()
 live_chart()
+
 
 
 with st.expander("About this dashboard"):
