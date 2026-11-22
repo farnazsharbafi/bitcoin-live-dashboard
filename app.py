@@ -22,9 +22,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("₿ Bitcoin Live Dashboard")
-st.caption("BTC/USDT · Binance spot market · Free public market data · UTC chart times")
 
-@st.cache_data(ttl=10, show_spinner=False)
+st.caption(
+    "BTC/USDT · MEXC Perpetual Futures · "
+    "Public market data · UTC chart times"
+)
+
+
+@st.cache_data(ttl=3, show_spinner=False)
 def get_cached_candles(interval: str, count: int) -> pd.DataFrame:
     return get_candles(interval, count)
 
@@ -118,7 +123,10 @@ def live_chart() -> None:
     try:
         df = get_cached_candles(interval, count)
     except Exception as exc:
-        st.error("Could not load live BTC/USDT candles from Binance. The API may be temporarily unavailable or restricted from this network.")
+        
+        st.error("Could not load BTC/USDT Perpetual candles from MEXC. "
+            "The API may be temporarily unavailable, "
+            "rate-limited, or restricted from this network.")
         st.caption(f"Technical detail: {type(exc).__name__}: {exc}")
         st.info("Try clicking Refresh now. No API key is required.")
         return
@@ -144,10 +152,15 @@ def live_chart() -> None:
 
 live_chart()
 
+
 with st.expander("About this dashboard"):
     st.write(
-        "This public portfolio app displays Binance BTC/USDT spot-market candles. "
-        "It supports line/candlestick views and custom timeframes. "
-        "It does not place trades or store market data. "
-        "The figures are illustrative of one exchange and may differ from other markets."
+        "This dashboard displays BTC/USDT Perpetual Futures "
+        "market data from MEXC. It supports candlestick and "
+        "line charts, multiple timeframes, and automatic "
+        "updates every 3 seconds while the session is active. "
+        "Custom intervals are aggregated from shorter candles. "
+        "The dashboard does not execute trades."
     )
+
+
