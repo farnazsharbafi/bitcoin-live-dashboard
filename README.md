@@ -1,36 +1,62 @@
-# Bitcoin Live Price Dashboard
+# BTC/USDT Perpetual · TD Sequential Multi-Timeframe Dashboard
 
-A public, interactive **BTC/USDT** dashboard built with Streamlit and Plotly. Shows candlestick/line charts, selectable intervals from one minute to one day, and automatic 15-second refreshing while the page is open.
+A public **MEXC BTC/USDT Perpetual** market-data dashboard built with Streamlit, Plotly and pandas.
 
 ## Features
 
-- BTC/USDT spot-market OHLCV candles from Binance public market-data REST endpoint, **without an API key**.
-- Candlestick or line display; zoom, pan, and hover.
-- Intervals: **1m, 2m, 3m, 5m, 10m, 15m, 30m, 1h, 2h, 3h, 4h, 5h, 6h, 8h, 12h, 1d**.
-- Custom **2m, 10m, 3h, 5h** OHLCV candles are resampled from shorter native candles.
-- Automatically refreshes every 15 seconds while an active browser session is connected; no continuous background data collection.
+- Candlestick and line charts across 1m–12M intervals, including custom aggregated timeframes.
+- Price chart refresh every ~3 seconds, candle countdown every ~1 second (while an active browser session is connected).
+- Independent Setup and Countdown labels on closed candles, with separate colors and vertical offsets.
+- Multi-timeframe panel examining **every configured interval above 5 minutes**; optional refresh every 90 seconds.
+- Recent Setup 9 / Countdown 13 alerts with de-duplication and downloadable history.
+- Local SQLite demonstration; optional PostgreSQL persistence with `DATABASE_URL` in private deployment secrets.
 
-## Get started
+## Important TD methodology disclosure
+
+`td_sequential.py` is an **auditable implementation of published TD Sequential 9/13 rules**, **not** an official/licensed or feature-complete DeMARK implementation. Implements price-flip-gated 9-bar setups, a simple setup perfection flag, nonconsecutive countdown, 13-vs-8 countdown deferral and opposite-setup cancellation. Optional simplified same-direction recycling restarts an active countdown on another Setup 9. It **does not** implement the full official TDST cancellation and all qualified recycling methods. Read code comments before comparing it to commercial indicators.
+
+Labels and alerts reflect **closed** candles only. Some custom aggregation intervals have partial left-edge buckets or limited history (MEXC maximum 2000 native candles per call). Alerts are generated during a scan, not while the browser is closed. This app does not execute trades or claim predictive accuracy.
+
+## Files
+
+- `market_data.py` — MEXC candles and custom intervals.
+- `td_sequential.py` — TD calculations and event detection.
+- `alerts.py` — deduplicated SQLite/PostgreSQL alert log.
+- `app.py` — chart, 1s timer, scanner, alert history.
+- `tests/` — unit tests without external API access.
+
+## Run locally
 
 ```bash
 python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open the local URL printed by Streamlit.
+## Run tests
 
-## Deployment
+```bash
+python -m pip install pytest
+python -m pytest -q
+```
 
-1. Push `app.py`, `market_data.py`, `requirements.txt` and this README to a GitHub repository.
-2. Open https://share.streamlit.io/ and select **Create app → Deploy from GitHub**.
-3. Set the entrypoint to `app.py` and deploy.
+## Deploy on Streamlit Community Cloud
 
-## Data, limitations, and design
+1. Upload these files to the root of your existing Bitcoin project repository. Do not remove your published URL/repository.
+2. App entrypoint: `app.py`.
+3. To make alert history durable, create a private PostgreSQL database and add a root-level `DATABASE_URL` secret in Streamlit Cloud Settings → Secrets (SQLAlchemy-compatible connection URI, URL-encode special password characters). Never commit this value.
+4. Without a database URL, alerts are saved locally to `td_alerts_local.sqlite3`, which may be lost whenever Streamlit restarts.
+5. With Streamlit Community Cloud, checks do **not** continue after the app goes to sleep. True 24/7 alerts require an independent worker or scheduled job.
 
-- Market: **BTCUSDT on Binance Spot**. Price is denominated in USDT, not exactly USD.
-- Public endpoint: `https://data-api.binance.vision/api/v3/klines`.
-- No API key, user accounts, order placement, database, or trading features.
-- This is **periodic REST polling, not streaming tick-by-tick data**. The current candle is not necessarily closed.
-- Custom candles are UTC-day-aligned. Because the public endpoint returns a limited recent window, custom intervals and count settings can display fewer bars than requested.
-- Network or regional restrictions and API availability can affect data retrieval.
-- This is an educational analytics dashboard and not investment advice.
+## API
+
+MEXC public futures klines: `https://api.mexc.com/api/v1/contract/kline/BTC_USDT`. No credential needed for public candle reads. Exchange limits / regional availability can change. Data collection is best effort and may fail with HTTP errors. Scanner makes many requests; it is optional and cached.
+
+## Disclaimer
+
+For technical experimentation and portfolio demonstration, not trading advice. Historic counts and alerts are not validated trade signals.
+
+## Updating from the supplied November 2026 repository snapshot
+
+This package is built from the uploaded `bitcoin-live-dashboard-main.zip`. It replaces the dashboard and preserves all 22 existing selectable intervals, both chart types, 3-second refresh, and the 1-second candle countdown. The new files are `td_sequential.py` and `alerts.py`. The existing original GitHub repo remains your deployment target.
+
+The unit tests cover local logic only; a successful live MEXC HTTP response and Streamlit Cloud runtime cannot be guaranteed by offline tests.
