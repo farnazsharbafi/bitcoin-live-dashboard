@@ -1,73 +1,144 @@
-"""Unauthenticated Binance public spot candles and custom OHLCV aggregation."""
+
+"""MEXC BTC_USDT perpetual futures OHLCV data."""
+
 from __future__ import annotations
 
 import pandas as pd
 import requests
 
-BASE_URL = "https://data-api.binance.vision/api/v3/klines"
-SYMBOL = "BTCUSDT"
+BASE_URL = "https://api.mexc.com/api/v1/contract/kline/BTC_USDT"
+SYMBOL = "BTC_USDT"
 
-# label: (binance interval to download, custom resampling rule or None)
-
+# Selected interval: (MEXC interval, custom aggregation)
 INTERVALS = {
-    # Minutes
-    "1m": ("1m", None),
-    "2m": ("1m", "2min"),
-    "3m": ("3m", None),
-    "5m": ("5m", None),
-    "10m": ("5m", "10min"),
-    "15m": ("15m", None),
-    "30m": ("30m", None),
-    "45m": ("15m", "45min"),
+    "1m": ("Min1", None),
+    "2m": ("Min1", "2min"),
+    "3m": ("Min1", "3min"),
+    "5m": ("Min5", None),
+    "10m": ("Min5", "10min"),
+    "15m": ("Min15", None),
+    "30m": ("Min30", None),
+    "45m": ("Min15", "45min"),
 
-    # Hours
-    "1h": ("1h", None),
-    "2h": ("2h", None),
-    "3h": ("1h", "3h"),
-    "4h": ("4h", None),
-    "5h": ("1h", "5h"),
-    "6h": ("6h", None),
-    "8h": ("8h", None),
-    "12h": ("12h", None),
+    "1h": ("Min60", None),
+    "2h": ("Min60", "2h"),
+    "3h": ("Min60", "3h"),
+    "4h": ("Hour4", None),
+    "5h": ("Min60", "5h"),
+    "6h": ("Min60", "6h"),
+    "8h": ("Hour8", None),
+    "12h": ("Hour4", "12h"),
 
-    # Days and weeks
-    "1d": ("1d", None),
-    "1w": ("1w", None),
+    "1d": ("Day1", None),
+    "1w": ("Week1", None),
 
-    # Calendar months
-    "1M": ("1M", None),
-    "3M": ("1M", "3mo"),
-    "6M": ("1M", "6mo"),
-    "12M": ("1M", "12mo"),
+    "1M": ("Month1", None),
+    "3M": ("Month1", "3mo"),
+    "6M": ("Month1", "6mo"),
+    "12M": ("Month1", "12mo"),
+}
+
+BASE_SECONDS = {
+    "Min1": 60,
+    "Min5": 300,
+    "Min15": 900,
+    "Min30": 1800,
+    "Min60": 3600,
+    "Hour4": 14400,
+    "Hour8": 28800,
+    "Day1": 86400,
+    "Week1": 604800,
+    "Month1": 30 * 86400,
+}
+
+MULTIPLIER = {
+    "2m": 2,
+    "3m": 3,
+    "10m": 2,
+    "45m": 3,
+    "2h": 2,
+    "3h": 3,
+    "5h": 5,
+    "6h": 6,
+    "12h": 3,
+    "3M": 3,
+    "6M": 6,
+    "12M": 12,
 }
 
 
+def parse_klines(payload) -> pd.DataFrame:
+    """Convert MEXC parallel arrays to OHLCV records."""
 
-def parse_klines(payload: list[list]) -> pd.DataFrame:
-    """Convert Binance's standard 12-field kline arrays into OHLCV rows."""
-    if not isinstance(payload, list) or not payload:
-        raise ValueError("The market-data API returned no candlesticks.")
-    if any(not isinstance(row, list) or len(row) < 6 for row in payload):
-        raise ValueError("Unexpected candlestick data format from the API.")
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected MEXC response format.")
 
-    df = pd.DataFrame(payload)
-    df = df.rename(columns={
-        0: "open_time", 1: "open", 2: "high", 3: "low",
-        4: "close", 5: "volume",
-    })[["open_time", "open", "high", "low", "close", "volume"]]
-    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = df.dropna(subset=["open_time", "open", "high", "low", "close", "volume"])
-    df = df.drop_duplicates(subset=["open_time"], keep="last")
-    return df.sort_values("open_time").reset_index(drop=True)
+    if not payload.get("success"):
+        raise RuntimeError(
+            f"MEXC API error: {payload.get('code')} "
+            f"{payload.get('message', '')}"
+        )
 
+    data = payload.get("data")
+
+    required = [
+        "time", "open", "high", "low",
+        "close", "vol"
+    ]
+
+    if not isinstance(data, dict):
+        raise ValueError("MEXC returned no candle data.")
+
+    if any(key not in data for key in required):
+        raise ValueError("Missing MEXC candle fields.")
+
+    lengths = [len(data[key]) for key in required]
+
+    if not lengths or min(lengths) == 0:
+        raise ValueError("MEXC returned empty candles.")
+
+    if len(set(lengths)) != 1:
+        raise ValueError("Inconsistent MEXC candle lengths.")
+
+    df = pd.DataFrame({
+        "open_time": pd.to_datetime(
+            data["time"], unit="s", utc=True
+        ),
+        "open": data["open"],
+        "high": data["high"],
+        "low": data["low"],
+        "close": data["close"],
+        "volume": data["vol"],
+    })
+
+    for col in [
+        "open", "high", "low", "close", "volume"
+    ]:
+        df[col] = pd.to_numeric(
+            df[col], errors="coerce"
+        )
+
+    df = df.dropna(
+        subset=[
+            "open_time", "open", "high",
+            "low", "close", "volume"
+        ]
+    )
+
+    df = df.drop_duplicates(
+        subset=["open_time"], keep="last"
+    )
+
+    return df.sort_values(
+        "open_time"
+    ).reset_index(drop=True)
 
 
 def aggregate_candles(
     df: pd.DataFrame,
     rule: str
 ) -> pd.DataFrame:
+    """Aggregate source candles into custom UTC buckets."""
 
     if df.empty:
         return df.copy()
@@ -80,17 +151,16 @@ def aggregate_candles(
         "volume": "sum",
     }
 
-    # Calendar-based aggregation
-    if rule in ["3mo", "6mo", "12mo"]:
-
+    if rule in ("3mo", "6mo", "12mo"):
         months = int(rule.replace("mo", ""))
-
         data = df.copy()
+
         timestamps = data["open_time"]
 
         bucket_month = (
-            (timestamps.dt.month - 1) // months
-        ) * months + 1
+            ((timestamps.dt.month - 1) // months)
+            * months + 1
+        )
 
         data["open_time"] = pd.to_datetime(
             {
@@ -98,7 +168,7 @@ def aggregate_candles(
                 "month": bucket_month,
                 "day": 1,
             },
-            utc=True
+            utc=True,
         )
 
         result = (
@@ -114,11 +184,13 @@ def aggregate_candles(
                 rule,
                 origin="start_day",
                 label="left",
-                closed="left"
+                closed="left",
             )
             .agg(aggregation)
             .dropna(
-                subset=["open", "high", "low", "close"]
+                subset=[
+                    "open", "high", "low", "close"
+                ]
             )
             .reset_index()
         )
@@ -126,40 +198,65 @@ def aggregate_candles(
     return result
 
 
+def get_candles(
+    interval: str,
+    count: int = 200
+) -> pd.DataFrame:
+    """Retrieve recent MEXC perpetual candles."""
 
-def get_candles(interval: str, count: int = 200) -> pd.DataFrame:
-    """Load recent spot candles; network failures surface as actionable exceptions."""
     if interval not in INTERVALS:
-        raise ValueError(f"Unsupported interval: {interval}")
+        raise ValueError(
+            f"Unsupported interval: {interval}"
+        )
+
     if not 25 <= count <= 400:
-        raise ValueError("count must be between 25 and 400")
+        raise ValueError(
+            "count must be between 25 and 400"
+        )
 
-    exchange_interval, resample_rule = INTERVALS[interval]
+    exchange_interval, rule = INTERVALS[interval]
+    multiplier = MULTIPLIER.get(interval, 1)
 
-    multiplier = {
-        "2m": 2,
-        "10m": 2,
-        "45m": 3,
-        "3h": 3,
-        "5h": 5,
-        "3M": 3,
-        "6M": 6,
-        "12M": 12,
-    }.get(interval, 1)
+    # MEXC returns at most 2000 points per request.
+    source_count = min(
+        2000,
+        count * multiplier + 20
+    )
 
-    # Binance allows up to 1000 in one request. We show up to 200 for 5h,
-    # and 200-400 for most other intervals, with a few extra source candles.
-    limit = min(1000, count * multiplier + 15)
+    now = pd.Timestamp.now(tz="UTC")
+    end_time = int(now.timestamp())
+
+    # Include extra time for partially formed buckets.
+    duration = BASE_SECONDS[exchange_interval]
+
+    start_time = end_time - (
+        (source_count + 5) * duration
+    )
+
     response = requests.get(
         BASE_URL,
-        params={"symbol": SYMBOL, "interval": exchange_interval, "limit": limit},
+        params={
+            "interval": exchange_interval,
+            "start": start_time,
+            "end": end_time,
+        },
         timeout=15,
-        headers={"Accept": "application/json", "User-Agent": "btc-dashboard-portfolio/1.0"},
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "btc-dashboard-portfolio/1.0",
+        },
     )
+
     response.raise_for_status()
+
     df = parse_klines(response.json())
-    if resample_rule:
-        df = aggregate_candles(df, resample_rule)
+
+    if rule:
+        df = aggregate_candles(df, rule)
+
     if df.empty:
-        raise ValueError("No usable candlestick data was returned.")
+        raise ValueError(
+            "No usable MEXC candles were returned."
+        )
+
     return df.tail(count).reset_index(drop=True)
